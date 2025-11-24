@@ -16,9 +16,7 @@ const controls = new PointerLockControls(camera, renderer.domElement);
 scene.add(controls.getObject());
 
 const overlay = document.getElementById('overlay');
-overlay.addEventListener('click', () => {
-  controls.lock();
-});
+overlay.addEventListener('click', () => {});
 controls.addEventListener('lock', () => {
   overlay.classList.add('hide');
 });
@@ -111,25 +109,14 @@ function mulberry32(seed) {
   };
 }
 
-async function loadMap() {
-  try {
-    const res = await fetch('./map.json');
-    const cfg = await res.json();
-    const rng = cfg.seed != null ? mulberry32(cfg.seed) : Math.random;
-    if (cfg.type === 'maze') {
-      buildMazeMap(cfg, rng);
-    } else {
-      buildMap(cfg.rows, cfg.cols, cfg.cell, cfg.height, cfg.door, rng);
-    }
-    spawnAtOpenLocation(rng);
-  } catch (e) {
-    const rng = Math.random;
-    buildMap(10, 12, 12, 4, 4, rng);
-    spawnAtOpenLocation(rng);
+async function loadMapFromConfig(cfg) {
+  const rng = cfg.seed != null ? mulberry32(cfg.seed) : Math.random;
+  if (cfg.type === 'maze') {
+    buildMazeMap(cfg, rng);
+  } else {
+    buildMap(cfg.rows, cfg.cols, cfg.cell, cfg.height, cfg.door, rng);
   }
 }
-
-loadMap();
 
 function spawnAtOpenLocation(rng = Math.random) {
   if (!mapBounds) {
@@ -149,6 +136,19 @@ function spawnAtOpenLocation(rng = Math.random) {
   }
   // Fallback: near center but slightly forward to avoid central divider
   controls.getObject().position.set(0, 1.6, 2.0);
+}
+
+function randomOpenPosition(rng = Math.random) {
+  if (!mapBounds) return { x: 0, z: 0 };
+  const { xMin, xMax, zMin, zMax } = mapBounds;
+  const tries = 200;
+  for (let i = 0; i < tries; i++) {
+    const x = THREE.MathUtils.lerp(xMin + 1.0, xMax - 1.0, rng());
+    const z = THREE.MathUtils.lerp(zMin + 1.0, zMax - 1.0, rng());
+    const candidate = new THREE.Vector3(x, 0, z);
+    if (!willCollide(candidate, 0.6)) return { x, z };
+  }
+  return { x: 0, z: 2.0 };
 }
 
 function generateMaze(rows, cols, rng) {
@@ -236,6 +236,19 @@ function buildMazeMap(cfg, rng) {
 
 const pointsGroup = new THREE.Group();
 scene.add(pointsGroup);
+let exitGroup = null;
+let goalArea = null;
+let enemy = null;
+let enemySpeed = 1.8;
+let enemyDir = new THREE.Vector3(1, 0, 0);
+let enemyTimer = 0;
+let audioCtx = null;
+let audioMasterGain = null;
+let enemyGain = null;
+let enemyNoiseSrc = null;
+let enemyFilter = null;
+let audioAccum = 0;
+let enemyPingTimer = 0;
 
 const gun = new THREE.Mesh(
   new THREE.CylinderGeometry(0.05, 0.05, 0.6, 16),
@@ -280,6 +293,13 @@ const clearDotsBtn = document.getElementById('clearDots');
 const openSettingsBtn = document.getElementById('openSettings');
 const closeSettingsBtn = document.getElementById('closeSettings');
 const settingsPanel = document.getElementById('settingsPanel');
+const tabPerfBtn = document.getElementById('tabPerf');
+const tabCustomBtn = document.getElementById('tabCustom');
+const tabExtrasBtn = document.getElementById('tabExtras');
+const settingsPerf = document.getElementById('settingsPerf');
+const settingsCustom = document.getElementById('settingsCustom');
+const settingsExtras = document.getElementById('settingsExtras');
+const perfPresetSel = document.getElementById('perfPreset');
 const customShapeSel = document.getElementById('customShape');
 const customXInput = document.getElementById('customX');
 const customYInput = document.getElementById('customY');
@@ -290,13 +310,53 @@ const customFillInput = document.getElementById('customFill');
 const openSuggestionsBtn = document.getElementById('openSuggestions');
 const openChangelogBtn = document.getElementById('openChangelog');
 const changelogModal = document.getElementById('changelogModal');
+const startNewBtn = document.getElementById('startNew');
+const startCrazyBtn = document.getElementById('startCrazy');
+const difficultySel = document.getElementById('difficulty');
+const resumeBtn = document.getElementById('resumeBtn');
+let hasStarted = false;
+let won = false;
+let currentDifficulty = 'medium';
+const winMsgEl = document.getElementById('winMsg');
 const closeChangelogBtn = document.getElementById('closeChangelog');
-const VERSION = '0.6.0-beta';
+let gameOver = false;
+const noiseFill = document.getElementById('noiseFill');
+let noiseLevel = 0;
+const NOISE_INC_RATE = 0.35;
+const NOISE_DECAY_RATE = 0.65;
+const VERSION = '0.6.6-beta';
 const CHANGELOG = [
+  {
+    version: '0.6.6-beta',
+    items: [
+      'Enemy added: fully transparent, spawns far, roams',
+      'Noise bar HUD: noise rises while walking, decays when still',
+      'Enemy attracted to noise; pathfinds through maze toward player',
+      'Scanning enemy shows red particles that auto-clear after 3s',
+      'Proximity audio replaced with soft noise bursts (near-only, gentle volume)',
+      'Pitch lowers as enemy approaches; bursts stop when far',
+      'Game Over triggers if enemy catches you while moving'
+    ]
+  },
+  {
+    version: '0.6.3-beta',
+    items: [
+      'Settings split into tabs: Performance, Custom Scan, Extras',
+      'Performance presets added and updated (3k/6k/10k/15k)',
+      'Max dots slider increased to 20,000',
+      'Start screen with difficulty select and map choice',
+      'Map regenerates fresh each start (guaranteed path to exit)',
+      'Random Crazy uses maze for connectivity with larger layouts',
+      'Exit changed to a faint green dotted circle area',
+      'Win detection and victory overlay message when in exit area',
+      'Resume button to unpause from overlay'
+    ]
+  },
   {
     version: '0.6.0-beta',
     items: [
-      'Added changelog and suggestions page function'
+      'Added changelog ',
+      'Added suggestions page'
     ]
   },
   {
@@ -415,6 +475,46 @@ if (closeSettingsBtn && settingsPanel) {
   });
 }
 
+function showTab(which) {
+  if (tabPerfBtn && tabCustomBtn && tabExtrasBtn) {
+    tabPerfBtn.classList.toggle('active', which === 'perf');
+    tabCustomBtn.classList.toggle('active', which === 'custom');
+    tabExtrasBtn.classList.toggle('active', which === 'extras');
+  }
+  if (settingsPerf && settingsCustom && settingsExtras) {
+    settingsPerf.classList.toggle('show', which === 'perf');
+    settingsCustom.classList.toggle('show', which === 'custom');
+    settingsExtras.classList.toggle('show', which === 'extras');
+  }
+}
+if (tabPerfBtn) tabPerfBtn.addEventListener('click', () => showTab('perf'));
+if (tabCustomBtn) tabCustomBtn.addEventListener('click', () => showTab('custom'));
+if (tabExtrasBtn) tabExtrasBtn.addEventListener('click', () => showTab('extras'));
+showTab('perf');
+
+function applyPreset(name) {
+  let d = density;
+  let m = maxDots;
+  if (name === 'low') { d = 3; m = 3000; }
+  else if (name === 'medium') { d = 6; m = 6000; }
+  else if (name === 'high') { d = 8; m = 10000; }
+  else if (name === 'ultra') { d = 10; m = 15000; }
+  if (densityInput && densityValue) {
+    densityInput.value = String(d);
+    density = d;
+    densityValue.textContent = String(d);
+  }
+  if (maxDotsInput && maxDotsValue) {
+    maxDotsInput.value = String(m);
+    maxDots = m;
+    maxDotsValue.textContent = String(m);
+  }
+}
+if (perfPresetSel) perfPresetSel.addEventListener('change', () => {
+  const v = perfPresetSel.value;
+  if (v !== 'custom') applyPreset(v);
+});
+
 if (customShapeSel) customShapeSel.addEventListener('change', () => { customShape = customShapeSel.value; });
 if (customXInput) customXInput.addEventListener('input', () => { customX = Math.max(1, Math.min(100, parseInt(customXInput.value || '1', 10))); });
 if (customYInput) customYInput.addEventListener('input', () => { customY = Math.max(1, Math.min(100, parseInt(customYInput.value || '1', 10))); });
@@ -449,6 +549,256 @@ function renderChangelog() {
 }
 if (openChangelogBtn && changelogModal) openChangelogBtn.addEventListener('click', () => { renderChangelog(); changelogModal.classList.add('show'); });
 if (closeChangelogBtn && changelogModal) closeChangelogBtn.addEventListener('click', () => { changelogModal.classList.remove('show'); });
+
+function difficultyConfig(level) {
+  if (level === 'easy') return { rows: 8, cols: 8, cell: 12, height: 4, door: 4, thickness: 0.2, hiddenDoorChance: 0.15, type: 'maze' };
+  if (level === 'medium') return { rows: 12, cols: 12, cell: 12, height: 4, door: 4, thickness: 0.2, hiddenDoorChance: 0.1, type: 'maze' };
+  if (level === 'hard') return { rows: 16, cols: 16, cell: 12, height: 4, door: 3, thickness: 0.2, hiddenDoorChance: 0.06, type: 'maze' };
+  return { rows: 24, cols: 20, cell: 12, height: 4, door: 2, thickness: 0.2, hiddenDoorChance: 0.03, type: 'maze' };
+}
+
+function cellToWorld(r, c) {
+  const { xMin, zMin, cell } = mapBounds;
+  return { x: xMin + c * cell + cell / 2, z: zMin + r * cell + cell / 2 };
+}
+
+function worldToCell(x, z) {
+  if (!mapBounds) return { r: 0, c: 0 };
+  const { xMin, zMin, cell, rows, cols } = mapBounds;
+  let c = Math.floor((x - xMin) / cell);
+  let r = Math.floor((z - zMin) / cell);
+  c = Math.max(0, Math.min(cols - 1, c));
+  r = Math.max(0, Math.min(rows - 1, r));
+  return { r, c };
+}
+
+function farthestCellFrom(sr, sc) {
+  if (!mazeCells) return [sr, sc];
+  const rows = mazeCells.length, cols = mazeCells[0].length;
+  const dist = Array.from({ length: rows }, () => Array(cols).fill(-1));
+  const q = [[sr, sc]];
+  dist[sr][sc] = 0;
+  while (q.length) {
+    const [r, c] = q.shift();
+    const d = dist[r][c];
+    const cell = mazeCells[r][c];
+    const nb = [];
+    if (!cell.N && r > 0) nb.push([r - 1, c]);
+    if (!cell.S && r < rows - 1) nb.push([r + 1, c]);
+    if (!cell.W && c > 0) nb.push([r, c - 1]);
+    if (!cell.E && c < cols - 1) nb.push([r, c + 1]);
+    for (const [nr, nc] of nb) {
+      if (dist[nr][nc] === -1) { dist[nr][nc] = d + 1; q.push([nr, nc]); }
+    }
+  }
+  let br = sr, bc = sc, md = 0;
+  for (let r = 0; r < rows; r++) {
+    for (let c = 0; c < cols; c++) {
+      if (dist[r][c] > md) { md = dist[r][c]; br = r; bc = c; }
+    }
+  }
+  return [br, bc];
+}
+
+function spawnAtCell(r, c) {
+  const p = cellToWorld(r, c);
+  controls.getObject().position.set(p.x, 1.6, p.z);
+}
+
+function placeGoalAtCell(r, c) {
+  const p = cellToWorld(r, c);
+  const radius = 1.2;
+  if (exitGroup) room.remove(exitGroup);
+  exitGroup = new THREE.Group();
+  const count = 40;
+  for (let i = 0; i < count; i++) {
+    const a = (i / count) * Math.PI * 2;
+    const x = p.x + Math.cos(a) * radius;
+    const z = p.z + Math.sin(a) * radius;
+    const dot = new THREE.Mesh(new THREE.SphereGeometry(0.045, 6, 6), new THREE.MeshBasicMaterial({ color: 0x88ff88 }));
+    dot.position.set(x, 0.15, z);
+    exitGroup.add(dot);
+  }
+  room.add(exitGroup);
+  goalArea = { x: p.x, z: p.z, r: radius };
+}
+
+function startGame(mode) {
+  const level = difficultySel ? difficultySel.value : 'medium';
+  const cfg = difficultyConfig(level);
+  const rng = Math.random;
+  resetMap();
+  won = false;
+  gameOver = false;
+  currentDifficulty = level;
+  if (winMsgEl) winMsgEl.textContent = '';
+  if (mode === 'crazy') {
+    const rows = 24 + Math.floor(rng() * 10);
+    const cols = 24 + Math.floor(rng() * 10);
+    const crazyCfg = { rows, cols, cell: 12, height: 4, door: 3, thickness: 0.2, hiddenDoorChance: 0.18, type: 'maze' };
+    loadMapFromConfig(crazyCfg);
+    const sr = Math.floor(rng() * rows);
+    const sc = Math.floor(rng() * cols);
+    const [er, ec] = farthestCellFrom(sr, sc);
+    spawnAtCell(sr, sc);
+    placeGoalAtCell(er, ec);
+    createEnemy();
+  } else {
+    loadMapFromConfig(cfg);
+    const sr = Math.floor(cfg.rows / 2);
+    const sc = Math.floor(cfg.cols / 2);
+    const [er, ec] = farthestCellFrom(sr, sc);
+    spawnAtCell(sr, sc);
+    placeGoalAtCell(er, ec);
+    createEnemy();
+  }
+  overlay.classList.add('hide');
+  controls.lock();
+  hasStarted = true;
+  setupAudio();
+}
+
+if (startNewBtn) startNewBtn.addEventListener('click', () => startGame('maze'));
+if (startCrazyBtn) startCrazyBtn.addEventListener('click', () => startGame('crazy'));
+if (resumeBtn) resumeBtn.addEventListener('click', () => { overlay.classList.add('hide'); controls.lock(); });
+
+function resetMap() {
+  while (room.children.length) room.remove(room.children[0]);
+  collidables.length = 0;
+  mazeCells = null;
+  mapBounds = null;
+  if (exitGroup) { room.remove(exitGroup); exitGroup = null; }
+  goalArea = null;
+  if (enemy) {
+    room.remove(enemy);
+    const idx = collidables.indexOf(enemy);
+    if (idx >= 0) collidables.splice(idx, 1);
+    enemy = null;
+  }
+  while (pointsGroup.children.length) pointsGroup.remove(pointsGroup.children[0]);
+}
+
+function onWin() {
+  won = true;
+  controls.unlock();
+  overlay.classList.remove('hide');
+  if (winMsgEl) winMsgEl.textContent = `You won the beta ${currentDifficulty} mode!`;
+}
+
+function onGameOver() {
+  gameOver = true;
+  scanning = false;
+  controls.unlock();
+  overlay.classList.remove('hide');
+  if (winMsgEl) winMsgEl.textContent = `Game Over — caught in beta ${currentDifficulty} mode`;
+  if (enemyGain) enemyGain.gain.value = 0;
+}
+
+function createEnemy() {
+  const playerPos = controls.getObject().position;
+  let pos = { x: 0, z: 0 }, bestDist = -1;
+  for (let i = 0; i < 80; i++) {
+    const cand = randomOpenPosition(Math.random);
+    const d = Math.hypot(playerPos.x - cand.x, playerPos.z - cand.z);
+    if (d > bestDist) { bestDist = d; pos = cand; }
+  }
+  const body = new THREE.Mesh(new THREE.CapsuleGeometry(0.25, 0.8, 8, 16), new THREE.MeshStandardMaterial({ color: 0x333333, transparent: true, opacity: 0 }));
+  body.position.set(pos.x, 1.0, pos.z);
+  enemy = body;
+  room.add(enemy);
+  collidables.push(enemy);
+  enemyDir.set(Math.random() - 0.5, 0, Math.random() - 0.5).normalize();
+  enemyTimer = 3 + Math.random() * 3;
+}
+
+function updateEnemy(delta) {
+  if (!enemy || !mapBounds) return;
+  const playerPos = controls.getObject().position;
+  const noisy = noiseLevel > 0.2;
+  if (noisy && mazeCells) {
+    const es = worldToCell(enemy.position.x, enemy.position.z);
+    const ps = worldToCell(playerPos.x, playerPos.z);
+    const rows = mazeCells.length, cols = mazeCells[0].length;
+    const dist = Array.from({ length: rows }, () => Array(cols).fill(-1));
+    const prev = Array.from({ length: rows }, () => Array(cols).fill(null));
+    const q = [[es.r, es.c]];
+    dist[es.r][es.c] = 0;
+    while (q.length) {
+      const [r, c] = q.shift();
+      if (r === ps.r && c === ps.c) break;
+      const cell = mazeCells[r][c];
+      const nb = [];
+      if (!cell.N && r > 0) nb.push([r - 1, c]);
+      if (!cell.S && r < rows - 1) nb.push([r + 1, c]);
+      if (!cell.W && c > 0) nb.push([r, c - 1]);
+      if (!cell.E && c < cols - 1) nb.push([r, c + 1]);
+      for (const [nr, nc] of nb) {
+        if (dist[nr][nc] === -1) { dist[nr][nc] = dist[r][c] + 1; prev[nr][nc] = [r, c]; q.push([nr, nc]); }
+      }
+    }
+    let tr = ps.r, tc = ps.c;
+    if (dist[tr][tc] !== -1) {
+      while (prev[tr][tc] && !(prev[tr][tc][0] === es.r && prev[tr][tc][1] === es.c)) {
+        const p = prev[tr][tc];
+        tr = p[0];
+        tc = p[1];
+      }
+      const target = cellToWorld(tr, tc);
+      const toTarget = new THREE.Vector3(target.x - enemy.position.x, 0, target.z - enemy.position.z).normalize();
+      enemyDir.copy(toTarget);
+    }
+  } else {
+    enemyTimer -= delta;
+    if (enemyTimer <= 0) { enemyDir.set(Math.random() - 0.5, 0, Math.random() - 0.5).normalize(); enemyTimer = 2 + Math.random() * 3; }
+  }
+  const next = enemy.position.clone().add(new THREE.Vector3(enemyDir.x, 0, enemyDir.z).multiplyScalar(enemySpeed * delta));
+  const bounce = willCollide(next, 0.4);
+  if (!bounce) {
+    enemy.position.set(next.x, enemy.position.y, next.z);
+  } else {
+    enemyDir.applyAxisAngle(new THREE.Vector3(0,1,0), (Math.random() - 0.5) * Math.PI);
+  }
+  const { xMin, xMax, zMin, zMax } = mapBounds;
+  if (enemy.position.x < xMin + 0.8 || enemy.position.x > xMax - 0.8) enemyDir.x *= -1;
+  if (enemy.position.z < zMin + 0.8 || enemy.position.z > zMax - 0.8) enemyDir.z *= -1;
+}
+
+function setupAudio() {
+  try {
+    if (!audioCtx) audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+    if (!audioMasterGain) { audioMasterGain = audioCtx.createGain(); audioMasterGain.gain.value = 0.35; audioMasterGain.connect(audioCtx.destination); }
+    if (!enemyGain) { enemyGain = audioCtx.createGain(); enemyGain.gain.value = 1; enemyGain.connect(audioMasterGain); }
+    if (enemyNoiseSrc) { try { enemyNoiseSrc.stop(); } catch {} enemyNoiseSrc = null; }
+    enemyFilter = null;
+    audioCtx.resume();
+  } catch {}
+}
+
+function enemyNoiseBurst(closeness) {
+  if (!audioCtx || !audioMasterGain) return;
+  const buffer = audioCtx.createBuffer(1, Math.floor(audioCtx.sampleRate * 0.25), audioCtx.sampleRate);
+  const data = buffer.getChannelData(0);
+  for (let i = 0; i < data.length; i++) data[i] = Math.random() * 2 - 1;
+  const src = audioCtx.createBufferSource();
+  src.buffer = buffer;
+  const bp = audioCtx.createBiquadFilter();
+  bp.type = 'bandpass';
+  const fHigh = 1200;
+  const fLow = 250;
+  bp.frequency.value = fHigh * (1 - closeness) + fLow * closeness;
+  bp.Q.value = 6;
+  const gain = audioCtx.createGain();
+  const amp = 0.03 + closeness * 0.06;
+  const t = audioCtx.currentTime;
+  gain.gain.setValueAtTime(0, t);
+  gain.gain.linearRampToValueAtTime(amp, t + 0.03);
+  gain.gain.exponentialRampToValueAtTime(0.0001, t + 0.22);
+  src.connect(bp);
+  bp.connect(gain);
+  gain.connect(audioMasterGain);
+  src.start(t);
+  src.stop(t + 0.25);
+}
 
 function movePlayer(delta) {
   const speed = 3.2;
@@ -731,17 +1081,22 @@ function castAndPlace(origin, direction, maxHits) {
   const hits = raycaster.intersectObjects(collidables, false);
   if (hits.length > 0) {
     const hit = hits[0];
-    placeDot(hit.point);
+    placeDot(hit.point, hit.object === enemy);
   }
 }
 
-function placeDot(position) {
+function placeDot(position, isEnemy = false) {
   const dot = new THREE.Mesh(
     new THREE.SphereGeometry(0.05, 8, 8),
-    new THREE.MeshBasicMaterial({ color: 0x00ffff })
+    new THREE.MeshBasicMaterial({ color: isEnemy ? 0xff0000 : 0x00ffff })
   );
   dot.position.copy(position);
   pointsGroup.add(dot);
+  if (isEnemy) {
+    setTimeout(() => {
+      if (dot.parent) dot.parent.remove(dot);
+    }, 3000);
+  }
   while (pointsGroup.children.length > maxDots) {
     const oldest = pointsGroup.children[0];
     pointsGroup.remove(oldest);
@@ -757,7 +1112,43 @@ function animate() {
   const now = performance.now();
   const delta = (now - lastTime) / 1000;
   lastTime = now;
+  audioAccum += delta;
   if (anyMovementKeys() || controls.isLocked) movePlayer(delta);
+  if (anyMovementKeys()) {
+    noiseLevel = Math.min(1, noiseLevel + NOISE_INC_RATE * delta);
+  } else {
+    noiseLevel = Math.max(0, noiseLevel - NOISE_DECAY_RATE * delta);
+  }
+  if (noiseFill) noiseFill.style.width = `${Math.floor(noiseLevel * 100)}%`;
+  if (!won && !gameOver && goalArea) {
+    const p = controls.getObject().position;
+    const dx = p.x - goalArea.x;
+    const dz = p.z - goalArea.z;
+    const dist = Math.sqrt(dx * dx + dz * dz);
+    if (dist < goalArea.r) onWin();
+  }
+  updateEnemy(delta);
+  if (enemyGain && enemy) {
+    const p = controls.getObject().position;
+    const dx = p.x - enemy.position.x;
+    const dz = p.z - enemy.position.z;
+    const dist = Math.sqrt(dx * dx + dz * dz);
+    const audibleRadius = 12;
+    if (dist < audibleRadius) {
+      const closeness = Math.max(0, Math.min(1, 1 - dist / audibleRadius));
+      if (enemyPingTimer <= 0) {
+        enemyNoiseBurst(closeness);
+        const interval = Math.max(0.22, 0.8 - 0.5 * closeness);
+        enemyPingTimer = interval;
+      } else {
+        enemyPingTimer -= delta;
+      }
+    } else {
+      enemyPingTimer = 0;
+    }
+    const catchRadius = 0.8;
+    if (!won && !gameOver && anyMovementKeys() && dist < catchRadius) onGameOver();
+  }
   if (scanning) {
     if (scanMode === 'dot') {
       shootDot();
