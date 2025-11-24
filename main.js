@@ -287,6 +287,97 @@ const createCustomBtn = document.getElementById('createCustom');
 const scanDotsInput = document.getElementById('scanDots');
 const scanDotsValue = document.getElementById('scanDotsValue');
 const customFillInput = document.getElementById('customFill');
+const openSuggestionsBtn = document.getElementById('openSuggestions');
+const openChangelogBtn = document.getElementById('openChangelog');
+const changelogModal = document.getElementById('changelogModal');
+const closeChangelogBtn = document.getElementById('closeChangelog');
+const VERSION = '0.6.0-beta';
+const CHANGELOG = [
+  {
+    version: '0.6.0-beta',
+    items: [
+      'Added changelog and suggestions page function'
+    ]
+  },
+  {
+    version: '0.5.8-beta',
+    items: [
+      'First open beta',
+      'Added Custom shapes: Rectangle, Circle, Triangle, Hexagon, Star, Plus',
+      'Added Fill option and Dots/scan slider for Custom',
+      'Replaced Ring with Random Beam (forward hemisphere)',
+      'Increased Random Beam fire rate',
+      'Settings panel right-side actions: Suggestions and Change Log',
+      'Change Log modal with accordion entries'
+    ]
+  },
+  {
+    version: '0.5.4',
+    items: [
+      'Added Suggestions page with back-to-game link',
+      'Added Change Log modal (initial version)'
+    ]
+  },
+  {
+    version: '0.4.8',
+    items: [
+      'Random Beam rate increased (triple beams per frame)'
+    ]
+  },
+  {
+    version: '0.4.2',
+    items: [
+      'Replaced Ring with Random Beam',
+      'Fixed Random Beam firing behind player (now forward hemisphere)'
+    ]
+  },
+  {
+    version: '0.3.6',
+    items: [
+      'Custom scan integrated as single active pattern',
+      'Queue builder for outline and filled shapes'
+    ]
+  },
+  {
+    version: '0.3.0',
+    items: [
+      'Custom scan creator UI',
+      'Shapes and X/Y size inputs',
+      'Dots/scan slider and Fill toggle'
+    ]
+  },
+  {
+    version: '0.2.4',
+    items: [
+      'Added Settings button and panel',
+      'Max dots slider (2,000–10,000) and Clear Dots'
+    ]
+  },
+  {
+    version: '0.1.8',
+    items: [
+      'Laser pointer repositioned to right of screen',
+      'Laser pointer rotated to align correctly',
+      'Fixed W/S movement direction'
+    ]
+  },
+  {
+    version: '0.1.2',
+    items: [
+      'Added Spiral and Fan scan modes',
+      'Added density control for queued scans',
+      'Added bottom-left mode label'
+    ]
+  },
+  {
+    version: '0.0.6',
+    items: [
+      'Initial playable build: WASD movement and pointer lock',
+      'Dot and Rect Grid scan modes',
+      'Basic map generation with walls and obstacles'
+    ]
+  }
+];
 
 function setMode(mode) {
   scanMode = mode;
@@ -335,6 +426,29 @@ if (scanDotsInput) {
   });
 }
 if (customFillInput) customFillInput.addEventListener('change', () => { customFill = !!customFillInput.checked; });
+if (openSuggestionsBtn) openSuggestionsBtn.addEventListener('click', () => { window.location.href = './suggestions.html'; });
+function renderChangelog() {
+  const container = document.getElementById('changelogEntries');
+  if (!container) return;
+  container.innerHTML = '';
+  for (const entry of CHANGELOG) {
+    const details = document.createElement('details');
+    details.open = false;
+    const summary = document.createElement('summary');
+    summary.textContent = entry.version;
+    details.appendChild(summary);
+    const ul = document.createElement('ul');
+    for (const it of entry.items) {
+      const li = document.createElement('li');
+      li.textContent = it;
+      ul.appendChild(li);
+    }
+    details.appendChild(ul);
+    container.appendChild(details);
+  }
+}
+if (openChangelogBtn && changelogModal) openChangelogBtn.addEventListener('click', () => { renderChangelog(); changelogModal.classList.add('show'); });
+if (closeChangelogBtn && changelogModal) closeChangelogBtn.addEventListener('click', () => { changelogModal.classList.remove('show'); });
 
 function movePlayer(delta) {
   const speed = 3.2;
