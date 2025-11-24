@@ -1,0 +1,11 @@
+{
+  "type": "maze",
+  "rows": 30, 
+  "cols": 40,
+  "cell": 8,
+  "height": 4,
+  "thickness": 0.2,
+  "door": 2.5,
+  "hiddenDoorChance": 0.15,
+  "seed": 1337
+}

@@ -1,0 +1,91 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>3D LiDAR Game</title>
+  <style>
+    html, body { margin: 0; height: 100%; overflow: hidden; background: #000; }
+    #hud { position: fixed; top: 12px; left: 12px; color: #fff; font-family: system-ui, sans-serif; z-index: 10; }
+    #hud .row { display: flex; gap: 8px; align-items: center; margin-top: 6px; }
+    #hud button { padding: 6px 10px; background: #222; color: #fff; border: 1px solid #444; border-radius: 6px; cursor: pointer; }
+    #hud button.active { background: #2e7; color: #000; border-color: #2e7; }
+    #hud input[type=range] { width: 160px; }
+    #settingsPanel { margin-top: 8px; background: rgba(0,0,0,0.6); padding: 10px 12px; border-radius: 8px; width: 280px; }
+    .panel.hide { display: none; }
+    #overlay { position: fixed; inset: 0; display: grid; place-items: center; background: rgba(0,0,0,0.8); color: #fff; font-family: system-ui, sans-serif; z-index: 5; }
+    #overlay.hide { display: none; }
+    #overlay .card { text-align: center; }
+    #overlay .card h1 { margin: 0 0 8px; font-size: 22px; }
+    #overlay .card p { margin: 4px 0; opacity: 0.8; }
+    #modeToast { position: fixed; left: 12px; bottom: 12px; color: #0ff; background: rgba(0,0,0,0.6); padding: 6px 10px; border-radius: 6px; font-family: system-ui, sans-serif; z-index: 10; }
+  </style>
+</head>
+<body>
+  <div id="hud">
+    <button id="openSettings">Settings</button>
+    <div id="settingsPanel" class="panel hide">
+      <div class="row"><strong>Settings</strong></div>
+      <div class="row">
+        <label for="maxDots">Max dots</label>
+        <input id="maxDots" type="range" min="2000" max="10000" step="100" value="10000" />
+        <span id="maxDotsValue">10000</span>
+      </div>
+      <div class="row">
+        <label for="density">Density</label>
+        <input id="density" type="range" min="1" max="10" value="7" />
+        <span id="densityValue">7</span>
+      </div>
+      <div class="row">
+        <label for="customShape">Custom</label>
+        <select id="customShape">
+          <option value="rectangle">Rectangle</option>
+          <option value="circle">Circle</option>
+          <option value="triangle">Triangle</option>
+          <option value="hexagon">Hexagon</option>
+          <option value="star">Star</option>
+          <option value="plus">Plus</option>
+        </select>
+      </div>
+      <div class="row">
+        <label for="customX">X size</label>
+        <input id="customX" type="number" min="1" max="100" value="35" />
+        <label for="customY">Y size</label>
+        <input id="customY" type="number" min="1" max="100" value="25" />
+        <button id="createCustom">Create</button>
+      </div>
+      <div class="row">
+        <label for="customFill">Fill</label>
+        <input id="customFill" type="checkbox" />
+      </div>
+      <div class="row">
+        <label for="scanDots">Dots/scan</label>
+        <input id="scanDots" type="range" min="100" max="10000" step="50" value="2000" />
+        <span id="scanDotsValue">2000</span>
+      </div>
+      <div class="row">
+        <button id="clearDots">Clear Dots</button>
+        <button id="closeSettings">Close</button>
+      </div>
+    </div>
+  </div>
+  <div id="overlay">
+    <div class="card">
+      <h1>Click to enter</h1>
+      <p>WASD to move, mouse to look</p>
+      <p>Left-click to scan</p>
+      <p>1 Dot, 2 Rect, 3 Spiral, 4 Fan, 5 Random</p>
+    </div>
+  </div>
+  <div id="modeToast">Dot</div>
+  <script type="importmap">
+    {
+      "imports": {
+        "three": "https://unpkg.com/three@0.160.0/build/three.module.js",
+        "three/examples/jsm/controls/PointerLockControls.js": "https://unpkg.com/three@0.160.0/examples/jsm/controls/PointerLockControls.js"
+      }
+    }
+  </script>
+  <script type="module" src="./main.js"></script>
+</body>
+</html>
