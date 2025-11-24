@@ -11,8 +11,17 @@
     #hud button { padding: 6px 10px; background: #222; color: #fff; border: 1px solid #444; border-radius: 6px; cursor: pointer; }
     #hud button.active { background: #2e7; color: #000; border-color: #2e7; }
     #hud input[type=range] { width: 160px; }
-    #settingsPanel { margin-top: 8px; background: rgba(0,0,0,0.6); padding: 10px 12px; border-radius: 8px; width: 280px; }
+    #settingsPanel { margin-top: 8px; background: rgba(0,0,0,0.6); padding: 10px 12px; border-radius: 8px; width: 480px; }
     .panel.hide { display: none; }
+    .settings-grid { display: flex; gap: 12px; }
+    .settings-left { flex: 1; }
+    .settings-right { width: 160px; display: flex; flex-direction: column; gap: 8px; }
+    #changelogModal { position: fixed; inset: 0; display: none; place-items: center; background: rgba(0,0,0,0.6); color: #fff; font-family: system-ui, sans-serif; z-index: 1000; }
+    #changelogModal.show { display: grid; }
+    #changelogModal .card { background: transparent; padding: 12px 16px; border-radius: 8px; width: 520px; border: 2px solid #7d3cff; }
+    #changelogModal .card .content { max-height: 60vh; overflow-y: auto; margin-top: 8px; }
+    #changelogModal details { background: rgba(255,255,255,0.06); border: 1px solid rgba(255,255,255,0.15); border-radius: 6px; padding: 6px 8px; margin-bottom: 8px; }
+    #changelogModal summary { cursor: pointer; font-weight: 600; }
     #overlay { position: fixed; inset: 0; display: grid; place-items: center; background: rgba(0,0,0,0.8); color: #fff; font-family: system-ui, sans-serif; z-index: 5; }
     #overlay.hide { display: none; }
     #overlay .card { text-align: center; }
@@ -25,47 +34,55 @@
   <div id="hud">
     <button id="openSettings">Settings</button>
     <div id="settingsPanel" class="panel hide">
-      <div class="row"><strong>Settings</strong></div>
-      <div class="row">
-        <label for="maxDots">Max dots</label>
-        <input id="maxDots" type="range" min="2000" max="10000" step="100" value="10000" />
-        <span id="maxDotsValue">10000</span>
-      </div>
-      <div class="row">
-        <label for="density">Density</label>
-        <input id="density" type="range" min="1" max="10" value="7" />
-        <span id="densityValue">7</span>
-      </div>
-      <div class="row">
-        <label for="customShape">Custom</label>
-        <select id="customShape">
-          <option value="rectangle">Rectangle</option>
-          <option value="circle">Circle</option>
-          <option value="triangle">Triangle</option>
-          <option value="hexagon">Hexagon</option>
-          <option value="star">Star</option>
-          <option value="plus">Plus</option>
-        </select>
-      </div>
-      <div class="row">
-        <label for="customX">X size</label>
-        <input id="customX" type="number" min="1" max="100" value="35" />
-        <label for="customY">Y size</label>
-        <input id="customY" type="number" min="1" max="100" value="25" />
-        <button id="createCustom">Create</button>
-      </div>
-      <div class="row">
-        <label for="customFill">Fill</label>
-        <input id="customFill" type="checkbox" />
-      </div>
-      <div class="row">
-        <label for="scanDots">Dots/scan</label>
-        <input id="scanDots" type="range" min="100" max="10000" step="50" value="2000" />
-        <span id="scanDotsValue">2000</span>
-      </div>
-      <div class="row">
-        <button id="clearDots">Clear Dots</button>
-        <button id="closeSettings">Close</button>
+      <div class="settings-grid">
+        <div class="settings-left">
+          <div class="row"><strong>Settings</strong></div>
+          <div class="row">
+            <label for="maxDots">Max dots</label>
+            <input id="maxDots" type="range" min="2000" max="10000" step="100" value="10000" />
+            <span id="maxDotsValue">10000</span>
+          </div>
+          <div class="row">
+            <label for="density">Density</label>
+            <input id="density" type="range" min="1" max="10" value="7" />
+            <span id="densityValue">7</span>
+          </div>
+          <div class="row">
+            <label for="customShape">Custom</label>
+            <select id="customShape">
+              <option value="rectangle">Rectangle</option>
+              <option value="circle">Circle</option>
+              <option value="triangle">Triangle</option>
+              <option value="hexagon">Hexagon</option>
+              <option value="star">Star</option>
+              <option value="plus">Plus</option>
+            </select>
+          </div>
+          <div class="row">
+            <label for="customX">X size</label>
+            <input id="customX" type="number" min="1" max="100" value="35" />
+            <label for="customY">Y size</label>
+            <input id="customY" type="number" min="1" max="100" value="25" />
+            <button id="createCustom">Create</button>
+          </div>
+          <div class="row">
+            <label for="customFill">Fill</label>
+            <input id="customFill" type="checkbox" />
+          </div>
+          <div class="row">
+            <label for="scanDots">Dots/scan</label>
+            <input id="scanDots" type="range" min="100" max="10000" step="50" value="2000" />
+            <span id="scanDotsValue">2000</span>
+          </div>
+          <div class="row">
+            <button id="clearDots">Clear Dots</button>
+            <button id="closeSettings">Close</button>
+          </div>
+        </div>
+        <div class="settings-right">
+          <button id="openSuggestions">Suggestion Page</button>
+          <button id="openChangelog">Change Log</button>
+        </div>
       </div>
     </div>
   </div>
@@ -78,6 +95,17 @@
     </div>
   </div>
   <div id="modeToast">Dot</div>
+  <div id="changelogModal">
+    <div class="card">
+      <h1>Change Log</h1>
+      <div class="content">
+        <div id="changelogEntries"></div>
+      </div>
+      <div class="row">
+        <button id="closeChangelog">Close</button>
+      </div>
+    </div>
+  </div>
   <script type="importmap">
     {
       "imports": {
