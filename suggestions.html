@@ -1,0 +1,258 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Suggestions</title>
+  <style>
+    body { margin: 0; font-family: system-ui, sans-serif; background: #111; color: #fff; }
+    header { padding: 16px; background: #000; position: sticky; top: 0; display: flex; gap: 10px; align-items: center; }
+    main { max-width: 960px; margin: 0 auto; padding: 24px; }
+    a.button, button { display: inline-block; padding: 8px 12px; background: #222; color: #0ff; border: 1px solid #444; border-radius: 6px; text-decoration: none; cursor: pointer; }
+    .toolbar { display: flex; gap: 12px; align-items: center; margin-top: 12px; }
+    .board { margin-top: 16px; display: grid; gap: 10px; }
+    .card { background: rgba(255,255,255,0.06); border: 1px solid rgba(255,255,255,0.15); border-radius: 8px; padding: 12px; display: grid; gap: 6px; }
+    .card .meta { display: flex; gap: 8px; align-items: center; font-size: 12px; opacity: 0.8; }
+    .card .vote { display: flex; gap: 8px; align-items: center; }
+    .card .vote button { color: #fff; border-color: #555; background: #333; }
+    .modal { position: fixed; inset: 0; display: none; place-items: center; background: rgba(0,0,0,0.7); z-index: 1000; }
+    .modal.show { display: grid; }
+    .modal .dialog { width: 520px; background: rgba(0,0,0,0.6); border: 2px solid #7d3cff; border-radius: 8px; padding: 14px; }
+    .field { display: grid; gap: 6px; margin-bottom: 10px; }
+    input[type=text], textarea, select { background: #111; color: #fff; border: 1px solid #444; border-radius: 6px; padding: 8px; }
+    textarea { min-height: 120px; }
+  </style>
+  <script type="importmap">
+    {
+      "imports": {
+        "three": "https://unpkg.com/three@0.160.0/build/three.module.js"
+      }
+    }
+</script>
+</head>
+<body>
+  <header>
+    <a class="button" href="./index.html">Back to Game</a>
+    <button id="newSuggestion">Create Suggestion</button>
+    <div class="toolbar">
+      <label for="sort">Sort</label>
+      <select id="sort">
+        <option value="top">Top</option>
+        <option value="new">Newest</option>
+        <option value="old">Oldest</option>
+      </select>
+    </div>
+  </header>
+  <main>
+    <h1>Suggestion Page</h1>
+    <p>Share ideas to improve gameplay, modes, maps, or UI.</p>
+    <div id="board" class="board"></div>
+  </main>
+  <div id="modal" class="modal">
+    <div class="dialog">
+      <h2>New Suggestion</h2>
+      <div class="field">
+        <label for="name">Name</label>
+        <input id="name" type="text" maxlength="32" placeholder="Your name" />
+      </div>
+      <div class="field">
+        <label for="title">Title</label>
+        <input id="title" type="text" maxlength="80" placeholder="Short title" />
+      </div>
+      <div class="field">
+        <label for="text">Suggestion</label>
+        <textarea id="text" maxlength="500" placeholder="Describe your idea"></textarea>
+      </div>
+      <div class="field">
+        <span id="error" style="color:#f55"></span>
+      </div>
+      <div class="field" style="display:flex; gap:8px;">
+        <button id="submit">Post</button>
+        <button id="cancel">Cancel</button>
+      </div>
+    </div>
+  </div>
+  <script>
+    const BANNED = [];
+    const BASE_PROFANITY = [
+      'fuck','shit','bitch','asshole','bastard','dick','pussy','cunt','prick','twat','wank','wanker','cock','balls',
+      'motherfuck','bullshit','dumbass','jackass','dipshit','douche','douchebag','faggot','slut','whore','skank'
+    ];
+    const BASE_PHRASES = [
+      'son of a bitch','go to hell','screw you','piss off','eat shit','kiss my ass'
+    ];
+    const SUFFIXES = ['s','ed','ing','er','ers','est','y'];
+    const VOTE_KEY = 'votes';
+    const SUG_KEY = 'suggestions';
+    const TTL_MS = 3 * 24 * 60 * 60 * 1000;
+    const sortSel = document.getElementById('sort');
+    const board = document.getElementById('board');
+    const modal = document.getElementById('modal');
+    const newBtn = document.getElementById('newSuggestion');
+    const submitBtn = document.getElementById('submit');
+    const cancelBtn = document.getElementById('cancel');
+    const nameInput = document.getElementById('name');
+    const titleInput = document.getElementById('title');
+    const textInput = document.getElementById('text');
+    const err = document.getElementById('error');
+    const LAST_POSTS_KEY = 'lastPostsByName';
+    const POST_LIMIT_MS = 2 * 24 * 60 * 60 * 1000;
+
+    function loadVotes() { try { return JSON.parse(localStorage.getItem(VOTE_KEY) || '{}'); } catch { return {}; } }
+    function saveVotes(v) { localStorage.setItem(VOTE_KEY, JSON.stringify(v)); }
+    function loadSug() { try { return JSON.parse(localStorage.getItem(SUG_KEY) || '[]'); } catch { return []; } }
+    function saveSug(list) { localStorage.setItem(SUG_KEY, JSON.stringify(list)); }
+    function now() { return Date.now(); }
+    function prune(list) { return list.filter(s => s.expiresAt > now()); }
+    function normalize(s) {
+      let t = s.toLowerCase();
+      t = t.normalize('NFD').replace(/[\u0300-\u036f]/g, '');
+      const map = { '0':'o','1':'i','!':'i','|':'i','3':'e','4':'a','@':'a','5':'s','$':'s','7':'t','+':'t','2':'z','8':'b' };
+      t = t.split('').map(c => map[c] || c).join('');
+      t = t.replace(/[^a-z\s]/g, '');
+      t = t.split(/\s+/).map(w => w.replace(/(.)\1+/g, '$1')).join(' ');
+      return t;
+    }
+    function tokenMatches(word, base) {
+      if (word === base) return true;
+      for (const suf of SUFFIXES) if (word === base + suf) return true;
+      return false;
+    }
+    function containsBanned(s) {
+      const n = normalize(s);
+      const toks = n.split(/\s+/).filter(Boolean);
+      const extra = (() => { try { return JSON.parse(localStorage.getItem('BANNED_EXTRA')||'[]'); } catch { return []; } })();
+      const bases = BASE_PROFANITY.concat(extra, BANNED).map(b => normalize(b));
+      for (const t of toks) {
+        for (const b of bases) {
+          if (tokenMatches(t, b)) return true;
+        }
+      }
+      const normPhrase = ' ' + n + ' ';
+      for (const phrase of BASE_PHRASES) {
+        const p = ' ' + normalize(phrase) + ' ';
+        if (normPhrase.includes(p)) return true;
+      }
+      return false;
+    }
+    function isGibberish(s) {
+      const t = normalize(s).replace(/[^a-z\s]/g, '');
+      const letters = t.replace(/\s+/g, '');
+      if (!letters) return true;
+      const vowels = (letters.match(/[aeiou]/g) || []).length;
+      const ratio = vowels / letters.length;
+      if (vowels < 1 || ratio < 0.2) return true;
+      let run = 0; let maxRun = 0;
+      for (const ch of letters) {
+        if (/[aeiou]/.test(ch)) { run = 0; } else { run++; if (run > maxRun) maxRun = run; }
+      }
+      if (maxRun >= 5) return true;
+      const distinct = new Set(letters.split('')).size;
+      if (distinct <= 2 && letters.length > 6) return true;
+      return false;
+    }
+    function validateName(s) {
+      if (!s || s.trim().length < 2) return 'Enter your name';
+      if (!/^[- a-zA-Z0-9]+$/.test(s)) return 'Invalid characters in name';
+      if (containsBanned(s)) return 'Inappropriate name';
+      if (isGibberish(s)) return 'Name looks like gibberish';
+      return '';
+    }
+    function validateTitle(s) {
+      if (!s || s.trim().length < 3) return 'Title is too short';
+      if (containsBanned(s)) return 'Inappropriate title';
+      if (isGibberish(s)) return 'Title looks like gibberish';
+      return '';
+    }
+    function validateText(s) {
+      if (!s || s.trim().length < 4) return 'Suggestion is too short';
+      if (containsBanned(s)) return 'Inappropriate content';
+      if (isGibberish(s)) return 'Suggestion looks like gibberish';
+      return '';
+    }
+    function openModal() { modal.classList.add('show'); err.textContent = ''; nameInput.value = ''; titleInput.value = ''; textInput.value = ''; }
+    function closeModal() { modal.classList.remove('show'); }
+    function createSuggestion(name, title, text) { const id = String(now()) + '-' + Math.random().toString(36).slice(2,7); return { id, name: name.trim(), title: title.trim(), text: text.trim(), createdAt: now(), expiresAt: now() + TTL_MS, score: 0 }; }
+    function canPost(name) {
+      const map = (() => { try { return JSON.parse(localStorage.getItem(LAST_POSTS_KEY)||'{}'); } catch { return {}; } })();
+      const key = normalize(name);
+      const last = map[key]||0;
+      return now() - last >= POST_LIMIT_MS;
+    }
+    function recordPost(name) {
+      const map = (() => { try { return JSON.parse(localStorage.getItem(LAST_POSTS_KEY)||'{}'); } catch { return {}; } })();
+      const key = normalize(name);
+      map[key] = now();
+      localStorage.setItem(LAST_POSTS_KEY, JSON.stringify(map));
+    }
+    function timeLeft(ms) { const rem = ms - now(); if (rem <= 0) return 'expired'; const d = Math.floor(rem / (24*60*60*1000)); const h = Math.floor((rem % (24*60*60*1000)) / (60*60*1000)); return d > 0 ? d + 'd ' + h + 'h' : h + 'h'; }
+    function render() {
+      let list = prune(loadSug());
+      saveSug(list);
+      const votes = loadVotes();
+      const sortBy = sortSel.value;
+      list.sort((a,b) => {
+        const sa = (a.score + (votes[a.id]||0));
+        const sb = (b.score + (votes[b.id]||0));
+        if (sortBy === 'top') return sb - sa || b.createdAt - a.createdAt;
+        if (sortBy === 'new') return b.createdAt - a.createdAt;
+        return a.createdAt - b.createdAt;
+      });
+      board.innerHTML = '';
+      for (const s of list) {
+        const card = document.createElement('div');
+        card.className = 'card';
+        const titleEl = document.createElement('div');
+        titleEl.style.fontWeight = '600';
+        titleEl.textContent = s.title || '(No title)';
+        const bodyEl = document.createElement('div');
+        bodyEl.textContent = s.text;
+        const meta = document.createElement('div');
+        meta.className = 'meta';
+        const when = new Date(s.createdAt).toLocaleString();
+        meta.textContent = 'By ' + s.name + ' • ' + when + ' • ' + timeLeft(s.expiresAt);
+        const vote = document.createElement('div');
+        vote.className = 'vote';
+        const score = document.createElement('span');
+        score.textContent = 'Score: ' + ((s.score + (votes[s.id]||0)));
+        const up = document.createElement('button');
+        up.textContent = 'Upvote';
+        const dn = document.createElement('button');
+        dn.textContent = 'Downvote';
+        up.addEventListener('click', () => { const v = loadVotes(); const cur = v[s.id]||0; v[s.id] = cur === 1 ? 0 : 1; saveVotes(v); render(); });
+        dn.addEventListener('click', () => { const v = loadVotes(); const cur = v[s.id]||0; v[s.id] = cur === -1 ? 0 : -1; saveVotes(v); render(); });
+        vote.appendChild(up);
+        vote.appendChild(dn);
+        vote.appendChild(score);
+        card.appendChild(titleEl);
+        card.appendChild(meta);
+        card.appendChild(bodyEl);
+        card.appendChild(vote);
+        board.appendChild(card);
+      }
+    }
+    sortSel.addEventListener('change', render);
+    newBtn.addEventListener('click', openModal);
+    cancelBtn.addEventListener('click', closeModal);
+    submitBtn.addEventListener('click', () => {
+      const n = nameInput.value;
+      const ti = titleInput.value;
+      const t = textInput.value;
+      const e1 = validateName(n);
+      if (e1) { err.textContent = e1; return; }
+      const eTitle = validateTitle(ti);
+      if (eTitle) { err.textContent = eTitle; return; }
+      const e2 = validateText(t);
+      if (e2) { err.textContent = e2; return; }
+      if (!canPost(n)) { err.textContent = 'You can only post one suggestion every 2 days'; return; }
+      const list = prune(loadSug());
+      list.push(createSuggestion(n, ti, t));
+      saveSug(list);
+      recordPost(n);
+      closeModal();
+      render();
+    });
+    render();
+  </script>
+</body>
+</html>
