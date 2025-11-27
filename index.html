@@ -24,8 +24,32 @@
     #changelogModal .card .content { max-height: 60vh; overflow-y: auto; margin-top: 8px; }
     #changelogModal details { background: rgba(255,255,255,0.06); border: 1px solid rgba(255,255,255,0.15); border-radius: 6px; padding: 6px 8px; margin-bottom: 8px; }
     #changelogModal summary { cursor: pointer; font-weight: 600; }
-    #noiseHud { position: fixed; left: 14px; bottom: 14px; width: 180px; height: 10px; border: 1px solid #888; border-radius: 6px; background: rgba(255,255,255,0.06); overflow: hidden; z-index: 900; }
+    #qaModal { position: fixed; inset: 0; display: none; place-items: center; background: rgba(0,0,0,0.6); color: #fff; font-family: system-ui, sans-serif; z-index: 1000; }
+    #qaModal.show { display: grid; }
+    #qaModal .card { background: transparent; padding: 12px 16px; border-radius: 8px; width: 520px; border: 2px solid #55ccff; }
+    #qaModal .card .content { max-height: 60vh; overflow-y: auto; margin-top: 8px; }
+    #qaModal details { background: rgba(255,255,255,0.06); border: 1px solid rgba(255,255,255,0.15); border-radius: 6px; padding: 6px 8px; margin-bottom: 8px; }
+    #qaModal summary { cursor: pointer; font-weight: 600; }
+    #cheatModal { position: fixed; inset: 0; display: none; place-items: center; background: rgba(0,0,0,0.6); color: #fff; font-family: system-ui, sans-serif; z-index: 1000; }
+    #cheatModal.show { display: grid; }
+    #cheatModal .card { background: transparent; padding: 12px 16px; border-radius: 8px; width: 440px; border: 2px solid #ff3366; }
+    #cheatModal .card .content { margin-top: 8px; }
+    button[disabled] { opacity: 0.5; cursor: not-allowed; }
+    #colorModal { position: fixed; inset: 0; display: none; place-items: center; background: rgba(0,0,0,0.6); color: #fff; font-family: system-ui, sans-serif; z-index: 1000; }
+    #colorModal.show { display: grid; }
+    #colorModal .card { background: transparent; padding: 12px 16px; border-radius: 8px; width: 480px; border: 2px solid #55ccff; }
+    #colorModal .card .content { max-height: 60vh; overflow-y: auto; margin-top: 8px; }
+    #colorCheatConfirm { position: fixed; inset: 0; display: none; place-items: center; background: rgba(0,0,0,0.6); color: #fff; font-family: system-ui, sans-serif; z-index: 1000; }
+    #colorCheatConfirm.show { display: grid; }
+    #colorCheatConfirm .card { background: transparent; padding: 12px 16px; border-radius: 8px; width: 440px; border: 2px solid #ff7ab3; }
+    #noiseHud { position: fixed; right: 14px; bottom: 14px; width: 240px; height: 12px; border: 1px solid #888; border-radius: 6px; background: rgba(255,255,255,0.06); overflow: hidden; z-index: 900; }
     #noiseHud .fill { height: 100%; width: 0%; background: linear-gradient(90deg, #55ccff, #ff3366); }
+    #miniMap { position: fixed; top: 12px; right: 12px; width: 200px; height: 200px; border: 2px solid #7d3cff; border-radius: 8px; background: rgba(0,0,0,0.5); overflow: hidden; z-index: 900; }
+    #miniMap.hide { display: none; }
+    #miniMap.expanded { width: 420px; height: 420px; border-width: 3px; }
+    #miniMap.canvas { width: 100%; height: 100%; display: block; }
+    .warn { color: #ffcc00; font-size: 12px; opacity: 0.95; }
+    .warn.hide { display: none; }
     #overlay { position: fixed; inset: 0; display: grid; place-items: center; background: rgba(0,0,0,0.8); color: #fff; font-family: system-ui, sans-serif; z-index: 5; }
     #overlay.hide { display: none; }
     #overlay .card { text-align: center; }
@@ -102,7 +126,59 @@
         <div class="row">
           <button id="openSuggestions">Suggestion Page</button>
           <button id="openChangelog">Change Log</button>
+          <button id="openQA">Q&A</button>
         </div>
+        <div class="row">
+          <label for="mappingMode">Mapping mode</label>
+          <input id="mappingMode" type="checkbox" />
+        </div>
+        <div class="row">
+          <label for="colorCheatEnable">Dot color cheat</label>
+          <input id="colorCheatEnable" type="checkbox" />
+          <button id="openColorModal" disabled>Open menu</button>
+        </div>
+      </div>
+    </div>
+  </div>
+  <div id="colorCheatConfirm">
+    <div class="card">
+      <h1>Pierce</h1>
+      <div class="content">
+        <p>Would you like to enable this cheat? It allows custom dot colors.</p>
+      </div>
+      <div class="row">
+        <button id="colorCheatYes">Enable</button>
+        <button id="colorCheatNo">Cancel</button>
+      </div>
+    </div>
+  </div>
+  <div id="colorModal">
+    <div class="card">
+      <h1>Dot Color Settings</h1>
+      <div class="content">
+        <div class="row">
+          <label for="colorMode">Dot color</label>
+          <select id="colorMode">
+            <option value="default">Default</option>
+            <option value="rainbow">Rainbow</option>
+            <option value="dual" selected>Two colors</option>
+          </select>
+        </div>
+        <div class="row">
+          <label for="colorA">Color A</label>
+          <input id="colorA" type="color" value="#00ffff" />
+          <label for="colorB">Color B</label>
+          <input id="colorB" type="color" value="#ff00ff" />
+        </div>
+        <div class="row">
+          <label for="colorBRatio">Color B ratio</label>
+          <input id="colorBRatio" type="range" min="0" max="100" value="50" />
+          <span id="colorBRatioValue">50%</span>
+        </div>
+        <p id="colorWarn" class="warn hide">Avoid choosing red (#ff0000) or black (#000000). Red is used for enemy hits and black is very hard to see.</p>
+      </div>
+      <div class="row">
+        <button id="closeColorModal">Close</button>
       </div>
     </div>
   </div>
@@ -132,6 +208,7 @@
     </div>
   </div>
   <div id="noiseHud"><div id="noiseFill" class="fill"></div></div>
+  <div id="miniMap" class="hide"><canvas id="miniMapCanvas" width="200" height="200"></canvas></div>
   <div id="modeToast">Dot</div>
   <div id="changelogModal">
     <div class="card">
@@ -141,6 +218,48 @@
       </div>
       <div class="row">
         <button id="closeChangelog">Close</button>
+      </div>
+    </div>
+  </div>
+  <div id="qaModal">
+    <div class="card">
+      <h1>Q&A</h1>
+      <div class="content">
+        <details>
+          <summary>How do I scan?</summary>
+          <p>Hold left mouse to scan. Release to stop. Switch modes with 1–5 or the mouse wheel.</p>
+        </details>
+        <details>
+          <summary>What is Mapping mode?</summary>
+          <p>Shows a top-right mini-map. Press M to enlarge. It requires confirmation to enable.</p>
+        </details>
+        <details>
+          <summary>Why are some dots red?</summary>
+          <p>Red dots indicate the enemy was scanned; they auto-clear after a few seconds.</p>
+        </details>
+        <details>
+          <summary>How does the enemy find me?</summary>
+          <p>It moves toward noise. If there is silence for 5–10 seconds, it wanders away from the last noise.</p>
+        </details>
+        <details>
+          <summary>Can I change dot colors?</summary>
+          <p>Enable the dot color cheat in Extras, then open the menu to choose Rainbow or Two colors with ratio.</p>
+        </details>
+      </div>
+      <div class="row">
+        <button id="closeQA">Close</button>
+      </div>
+    </div>
+  </div>
+  <div id="cheatModal">
+    <div class="card">
+      <h1>Pierce</h1>
+      <div class="content">
+        <p>Would you like to enable this cheat? It shows a top-down mini-map.</p>
+      </div>
+      <div class="row">
+        <button id="cheatYes">Enable</button>
+        <button id="cheatNo">Cancel</button>
       </div>
     </div>
   </div>
