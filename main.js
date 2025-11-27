@@ -249,6 +249,11 @@ let enemyNoiseSrc = null;
 let enemyFilter = null;
 let audioAccum = 0;
 let enemyPingTimer = 0;
+let noNoiseTimer = 0;
+let avoidTargetCell = null;
+let avoidTimer = 0;
+let noiseIdleThreshold = 5 + Math.random() * 5;
+let lastNoisePos = { x: 0, z: 0 };
 
 const gun = new THREE.Mesh(
   new THREE.CylinderGeometry(0.05, 0.05, 0.6, 16),
@@ -267,6 +272,15 @@ window.addEventListener('keydown', e => {
   if (e.code === 'Digit3') setMode('spiral');
   if (e.code === 'Digit4') setMode('fan');
   if (e.code === 'Digit5') setMode('random');
+  if (e.code === 'KeyM') {
+    miniMapExpanded = !miniMapExpanded;
+    if (miniMapDiv) miniMapDiv.classList.toggle('expanded', miniMapExpanded);
+    if (miniMapCanvas) {
+      if (miniMapExpanded) { miniMapCanvas.width = 420; miniMapCanvas.height = 420; }
+      else { miniMapCanvas.width = 200; miniMapCanvas.height = 200; }
+    }
+    e.preventDefault();
+  }
 });
 window.addEventListener('keyup', e => {
   keys.delete(e.code);
@@ -310,6 +324,9 @@ const customFillInput = document.getElementById('customFill');
 const openSuggestionsBtn = document.getElementById('openSuggestions');
 const openChangelogBtn = document.getElementById('openChangelog');
 const changelogModal = document.getElementById('changelogModal');
+const openQABtn = document.getElementById('openQA');
+const qaModal = document.getElementById('qaModal');
+const closeQABtn = document.getElementById('closeQA');
 const startNewBtn = document.getElementById('startNew');
 const startCrazyBtn = document.getElementById('startCrazy');
 const difficultySel = document.getElementById('difficulty');
@@ -322,10 +339,72 @@ const closeChangelogBtn = document.getElementById('closeChangelog');
 let gameOver = false;
 const noiseFill = document.getElementById('noiseFill');
 let noiseLevel = 0;
-const NOISE_INC_RATE = 0.35;
-const NOISE_DECAY_RATE = 0.65;
-const VERSION = '0.6.6-beta';
+const NOISE_INC_RATE = 0.18;
+const NOISE_DECAY_RATE = 0.85;
+const mappingModeInput = document.getElementById('mappingMode');
+const miniMapDiv = document.getElementById('miniMap');
+const miniMapCanvas = document.getElementById('miniMapCanvas');
+let miniMapCtx = miniMapCanvas ? miniMapCanvas.getContext('2d') : null;
+let mappingEnabled = false;
+let miniMapExpanded = false;
+const cheatModal = document.getElementById('cheatModal');
+const cheatYesBtn = document.getElementById('cheatYes');
+const cheatNoBtn = document.getElementById('cheatNo');
+const colorModeSel = document.getElementById('colorMode');
+const colorAInput = document.getElementById('colorA');
+const colorBInput = document.getElementById('colorB');
+const colorCheatEnable = document.getElementById('colorCheatEnable');
+const openColorModalBtn = document.getElementById('openColorModal');
+const colorModal = document.getElementById('colorModal');
+const closeColorModalBtn = document.getElementById('closeColorModal');
+const colorCheatConfirm = document.getElementById('colorCheatConfirm');
+const colorCheatYesBtn = document.getElementById('colorCheatYes');
+const colorCheatNoBtn = document.getElementById('colorCheatNo');
+const colorBRatioInput = document.getElementById('colorBRatio');
+const colorBRatioValue = document.getElementById('colorBRatioValue');
+const colorWarnEl = document.getElementById('colorWarn');
+let colorMode = 'default';
+let colorA = 0x00ffff;
+let colorB = 0xff00ff;
+let rainbowHue = 0;
+let dualToggle = false;
+let colorCheatEnabled = false;
+let colorBRatio = 0.5;
+const VERSION = '0.7.4-beta';
 const CHANGELOG = [
+  {
+    version: '0.7.4-beta',
+    items: [
+      'Q&A modal added in Extras next to Change Log',
+      'Q&A covers scanning, mapping, enemy behavior, and color cheat',
+      'Open/close controls wired; content scrolls within modal'
+    ]
+  },
+  {
+    version: '0.7.3-beta',
+    items: [
+      'Dot color cheat added with enable confirmation and modal',
+      'Modes: Default, Rainbow, Two colors with A/B pickers',
+      'Two-color supports adjustable Color B ratio (0–100%)',
+      'Warning shown when selecting red or black for visibility/meaning',
+      'Color customization gated by cheat enable; enemy hits stay red'
+    ]
+  },
+  {
+    version: '0.7.2-beta',
+    items: [
+      'Mapping mode added with top-right mini-map overlay',
+      'Press M to enlarge/shrink mini-map; enlarged shows wider area',
+      'Mini-map zoom radius doubles when expanded; render cap increases',
+      'Mini-map shows fewer floor/ceiling dots (~25%), more walls (~70%)',
+      'Stable subsampling for mini-map to avoid flicker',
+      'Bottom-right noise HUD; larger size for visibility',
+      'Noise rises slower and decays faster (run longer before max)',
+      'Enemy wanders away after 5–10s of silence from last noise',
+      'Fixed shooting without pointer lock; clicks over UI are ignored',
+      'Mini-map performance and visibility improvements'
+    ]
+  },
   {
     version: '0.6.6-beta',
     items: [
@@ -548,6 +627,8 @@ function renderChangelog() {
   }
 }
 if (openChangelogBtn && changelogModal) openChangelogBtn.addEventListener('click', () => { renderChangelog(); changelogModal.classList.add('show'); });
+if (openQABtn && qaModal) openQABtn.addEventListener('click', () => { qaModal.classList.add('show'); });
+if (closeQABtn && qaModal) closeQABtn.addEventListener('click', () => { qaModal.classList.remove('show'); });
 if (closeChangelogBtn && changelogModal) closeChangelogBtn.addEventListener('click', () => { changelogModal.classList.remove('show'); });
 
 function difficultyConfig(level) {
@@ -661,6 +742,83 @@ function startGame(mode) {
 if (startNewBtn) startNewBtn.addEventListener('click', () => startGame('maze'));
 if (startCrazyBtn) startCrazyBtn.addEventListener('click', () => startGame('crazy'));
 if (resumeBtn) resumeBtn.addEventListener('click', () => { overlay.classList.add('hide'); controls.lock(); });
+if (mappingModeInput) mappingModeInput.addEventListener('change', () => {
+  const wantEnable = !!mappingModeInput.checked;
+  if (wantEnable) {
+    mappingModeInput.checked = false;
+    if (cheatModal) cheatModal.classList.add('show');
+  } else {
+    mappingEnabled = false;
+    if (miniMapDiv) miniMapDiv.classList.toggle('hide', true);
+  }
+});
+if (cheatYesBtn && cheatModal) cheatYesBtn.addEventListener('click', () => {
+  mappingEnabled = true;
+  mappingModeInput.checked = true;
+  if (miniMapDiv) miniMapDiv.classList.toggle('hide', false);
+  cheatModal.classList.remove('show');
+});
+if (cheatNoBtn && cheatModal) cheatNoBtn.addEventListener('click', () => {
+  mappingEnabled = false;
+  mappingModeInput.checked = false;
+  if (miniMapDiv) miniMapDiv.classList.toggle('hide', true);
+  cheatModal.classList.remove('show');
+});
+if (colorCheatEnable) colorCheatEnable.addEventListener('change', () => {
+  const wantEnable = !!colorCheatEnable.checked;
+  if (wantEnable) {
+    colorCheatEnable.checked = false;
+    if (colorCheatConfirm) colorCheatConfirm.classList.add('show');
+  } else {
+    colorCheatEnabled = false;
+    if (openColorModalBtn) openColorModalBtn.disabled = true;
+    if (colorModal) colorModal.classList.remove('show');
+  }
+});
+if (colorCheatYesBtn && colorCheatConfirm) colorCheatYesBtn.addEventListener('click', () => {
+  colorCheatEnabled = true;
+  colorCheatEnable.checked = true;
+  if (openColorModalBtn) openColorModalBtn.disabled = false;
+  colorCheatConfirm.classList.remove('show');
+});
+if (colorCheatNoBtn && colorCheatConfirm) colorCheatNoBtn.addEventListener('click', () => {
+  colorCheatEnabled = false;
+  colorCheatEnable.checked = false;
+  if (openColorModalBtn) openColorModalBtn.disabled = true;
+  colorCheatConfirm.classList.remove('show');
+});
+if (openColorModalBtn && colorModal) openColorModalBtn.addEventListener('click', () => { if (!openColorModalBtn.disabled) colorModal.classList.add('show'); });
+if (closeColorModalBtn && colorModal) closeColorModalBtn.addEventListener('click', () => { colorModal.classList.remove('show'); });
+if (colorModeSel) {
+  colorMode = colorModeSel.value;
+  colorModeSel.addEventListener('change', () => { colorMode = colorModeSel.value; });
+}
+function parseHexColor(s) { try { return parseInt(s.replace('#',''), 16); } catch { return 0xffffff; } }
+function hexStr(s) { return (s || '').toLowerCase(); }
+function updateColorWarning() {
+  if (!colorWarnEl || !colorAInput || !colorBInput) return;
+  const a = hexStr(colorAInput.value);
+  const b = hexStr(colorBInput.value);
+  const bad = (a === '#ff0000' || a === '#000000' || b === '#ff0000' || b === '#000000');
+  colorWarnEl.classList.toggle('hide', !bad);
+}
+if (colorAInput) {
+  colorA = parseHexColor(colorAInput.value);
+  colorAInput.addEventListener('input', () => { colorA = parseHexColor(colorAInput.value); updateColorWarning(); });
+  colorAInput.addEventListener('change', () => { colorA = parseHexColor(colorAInput.value); updateColorWarning(); });
+}
+if (colorBInput) {
+  colorB = parseHexColor(colorBInput.value);
+  colorBInput.addEventListener('input', () => { colorB = parseHexColor(colorBInput.value); updateColorWarning(); });
+  colorBInput.addEventListener('change', () => { colorB = parseHexColor(colorBInput.value); updateColorWarning(); });
+}
+if (colorBRatioInput && colorBRatioValue) {
+  const updateBRatio = () => { colorBRatio = Math.max(0, Math.min(1, (parseInt(colorBRatioInput.value, 10) || 0) / 100)); colorBRatioValue.textContent = `${Math.round(colorBRatio * 100)}%`; };
+  updateBRatio();
+  colorBRatioInput.addEventListener('input', updateBRatio);
+  colorBRatioInput.addEventListener('change', updateBRatio);
+}
+if (openColorModalBtn) openColorModalBtn.addEventListener('click', () => { updateColorWarning(); });
 
 function resetMap() {
   while (room.children.length) room.remove(room.children[0]);
@@ -716,6 +874,10 @@ function updateEnemy(delta) {
   const playerPos = controls.getObject().position;
   const noisy = noiseLevel > 0.2;
   if (noisy && mazeCells) {
+    lastNoisePos.x = playerPos.x;
+    lastNoisePos.z = playerPos.z;
+    noNoiseTimer = 0;
+    avoidTargetCell = null;
     const es = worldToCell(enemy.position.x, enemy.position.z);
     const ps = worldToCell(playerPos.x, playerPos.z);
     const rows = mazeCells.length, cols = mazeCells[0].length;
@@ -748,8 +910,52 @@ function updateEnemy(delta) {
       enemyDir.copy(toTarget);
     }
   } else {
-    enemyTimer -= delta;
-    if (enemyTimer <= 0) { enemyDir.set(Math.random() - 0.5, 0, Math.random() - 0.5).normalize(); enemyTimer = 2 + Math.random() * 3; }
+    noNoiseTimer += delta;
+    if (!avoidTargetCell && noNoiseTimer > noiseIdleThreshold && mazeCells) {
+      const heardCell = worldToCell(lastNoisePos.x, lastNoisePos.z);
+      const [ar, ac] = farthestCellFrom(heardCell.r, heardCell.c);
+      avoidTargetCell = { r: ar, c: ac };
+      avoidTimer = 5 + Math.random() * 5;
+      noiseIdleThreshold = 5 + Math.random() * 5;
+    }
+    if (avoidTargetCell && avoidTimer > 0 && mazeCells) {
+      const es = worldToCell(enemy.position.x, enemy.position.z);
+      const trGoal = avoidTargetCell.r, tcGoal = avoidTargetCell.c;
+      const rows = mazeCells.length, cols = mazeCells[0].length;
+      const dist = Array.from({ length: rows }, () => Array(cols).fill(-1));
+      const prev = Array.from({ length: rows }, () => Array(cols).fill(null));
+      const q = [[es.r, es.c]];
+      dist[es.r][es.c] = 0;
+      while (q.length) {
+        const [r, c] = q.shift();
+        if (r === trGoal && c === tcGoal) break;
+        const cell = mazeCells[r][c];
+        const nb = [];
+        if (!cell.N && r > 0) nb.push([r - 1, c]);
+        if (!cell.S && r < rows - 1) nb.push([r + 1, c]);
+        if (!cell.W && c > 0) nb.push([r, c - 1]);
+        if (!cell.E && c < cols - 1) nb.push([r, c + 1]);
+        for (const [nr, nc] of nb) {
+          if (dist[nr][nc] === -1) { dist[nr][nc] = dist[r][c] + 1; prev[nr][nc] = [r, c]; q.push([nr, nc]); }
+        }
+      }
+      let tr = trGoal, tc = tcGoal;
+      if (dist[tr][tc] !== -1) {
+        while (prev[tr][tc] && !(prev[tr][tc][0] === es.r && prev[tr][tc][1] === es.c)) {
+          const p = prev[tr][tc];
+          tr = p[0];
+          tc = p[1];
+        }
+        const target = cellToWorld(tr, tc);
+        const toTarget = new THREE.Vector3(target.x - enemy.position.x, 0, target.z - enemy.position.z).normalize();
+        enemyDir.copy(toTarget);
+      }
+      avoidTimer -= delta;
+      if (avoidTimer <= 0) avoidTargetCell = null;
+    } else {
+      enemyTimer -= delta;
+      if (enemyTimer <= 0) { enemyDir.set(Math.random() - 0.5, 0, Math.random() - 0.5).normalize(); enemyTimer = 2 + Math.random() * 3; }
+    }
   }
   const next = enemy.position.clone().add(new THREE.Vector3(enemyDir.x, 0, enemyDir.z).multiplyScalar(enemySpeed * delta));
   const bounce = willCollide(next, 0.4);
@@ -1086,9 +1292,21 @@ function castAndPlace(origin, direction, maxHits) {
 }
 
 function placeDot(position, isEnemy = false) {
+  let c = isEnemy ? 0xff0000 : 0x00ffff;
+  if (!isEnemy && colorCheatEnabled) {
+    if (colorMode === 'rainbow') {
+      rainbowHue = (rainbowHue + 0.01) % 1;
+      const clr = new THREE.Color();
+      clr.setHSL(rainbowHue, 0.8, 0.5);
+      c = clr.getHex();
+    } else if (colorMode === 'dual') {
+      const r = Math.random();
+      c = (r < colorBRatio) ? colorB : colorA;
+    }
+  }
   const dot = new THREE.Mesh(
     new THREE.SphereGeometry(0.05, 8, 8),
-    new THREE.MeshBasicMaterial({ color: isEnemy ? 0xff0000 : 0x00ffff })
+    new THREE.MeshBasicMaterial({ color: c })
   );
   dot.position.copy(position);
   pointsGroup.add(dot);
@@ -1165,17 +1383,26 @@ function animate() {
       if (scanIndex >= scanQueue.length) scanning = false;
     }
   }
+  if (mappingEnabled) renderMiniMap();
   renderer.render(scene, camera);
   requestAnimationFrame(animate);
 }
 animate();
 
 renderer.domElement.addEventListener('mousedown', e => {
-  if (controls.isLocked) shoot();
+  shoot();
 });
 renderer.domElement.addEventListener('mouseup', e => {
   scanning = false;
 });
+
+document.addEventListener('mousedown', e => {
+  const t = e.target;
+  const isUI = (t && (t.closest('#overlay') || t.closest('#miniMap') || t.closest('#changelogModal')));
+  if (isUI) return;
+  shoot();
+});
+document.addEventListener('mouseup', () => { scanning = false; });
 
 // Scroll wheel to switch modes
 window.addEventListener('wheel', e => {
@@ -1192,3 +1419,43 @@ window.addEventListener('resize', () => {
   camera.updateProjectionMatrix();
   renderer.setSize(window.innerWidth, window.innerHeight);
 });
+function renderMiniMap() {
+  if (!miniMapCtx || !miniMapCanvas) return;
+  const w = miniMapCanvas.width, h = miniMapCanvas.height;
+  miniMapCtx.fillStyle = 'rgba(0,0,0,0.25)';
+  miniMapCtx.fillRect(0, 0, w, h);
+  const player = controls.getObject().position;
+  const range = miniMapExpanded ? 50 : 25;
+  function toScreen(x, z) {
+    const dx = x - player.x;
+    const dz = z - player.z;
+    const sx = w / 2 + (dx / range) * (w / 2);
+    const sy = h / 2 + (dz / range) * (h / 2);
+    return { sx, sy };
+  }
+  function includeDot(x, z, prob) {
+    const h = Math.abs(Math.sin(x * 12.9898 + z * 78.233) * 43758.5453);
+    const r = h - Math.floor(h);
+    return r < prob;
+  }
+  miniMapCtx.fillStyle = '#00ffff';
+  const maxDraw = miniMapExpanded ? 3000 : 1500;
+  let drawn = 0;
+  for (let i = pointsGroup.children.length - 1; i >= 0 && drawn < maxDraw; i--) {
+    const dot = pointsGroup.children[i];
+    const p = dot.position;
+    const isFloor = p.y < 0.25;
+    const isCeil = mapBounds && Math.abs(p.y - mapBounds.height) < 0.25;
+    const prob = (isFloor || isCeil) ? 0.25 : 0.7;
+    if (!includeDot(p.x, p.z, prob)) continue;
+    const c = toScreen(p.x, p.z);
+    const colorHex = dot.material && dot.material.color ? `#${dot.material.color.getHexString()}` : '#00ffff';
+    miniMapCtx.fillStyle = colorHex;
+    miniMapCtx.fillRect(Math.floor(c.sx), Math.floor(c.sy), 2, 2);
+    drawn++;
+  }
+  miniMapCtx.fillStyle = '#ffffff';
+  miniMapCtx.beginPath();
+  miniMapCtx.arc(w / 2, h / 2, 3, 0, Math.PI * 2);
+  miniMapCtx.fill();
+}
