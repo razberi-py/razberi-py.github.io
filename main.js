@@ -324,6 +324,18 @@ const customFillInput = document.getElementById('customFill');
 const openSuggestionsBtn = document.getElementById('openSuggestions');
 const openChangelogBtn = document.getElementById('openChangelog');
 const changelogModal = document.getElementById('changelogModal');
+const openMPBtn = document.getElementById('openMP');
+const mpModal = document.getElementById('mpModal');
+const closeMPBtn = document.getElementById('closeMP');
+const mpUsernameInput = document.getElementById('mpUsername');
+const mpLobbyNameInput = document.getElementById('mpLobbyName');
+const mpLockInput = document.getElementById('mpLock');
+const mpPasswordInput = document.getElementById('mpPassword');
+const mpCreateBtn = document.getElementById('mpCreate');
+const mpJoinCodeInput = document.getElementById('mpJoinCode');
+const mpJoinPasswordInput = document.getElementById('mpJoinPassword');
+const mpJoinBtn = document.getElementById('mpJoin');
+const mpLobbyListDiv = document.getElementById('mpLobbyList');
 const openQABtn = document.getElementById('openQA');
 const qaModal = document.getElementById('qaModal');
 const closeQABtn = document.getElementById('closeQA');
@@ -546,11 +558,13 @@ if (clearDotsBtn) {
 if (openSettingsBtn && settingsPanel) {
   openSettingsBtn.addEventListener('click', () => {
     settingsPanel.classList.remove('hide');
+    if (openMPBtn) openMPBtn.classList.remove('hide');
   });
 }
 if (closeSettingsBtn && settingsPanel) {
   closeSettingsBtn.addEventListener('click', () => {
     settingsPanel.classList.add('hide');
+    if (openMPBtn) openMPBtn.classList.add('hide');
   });
 }
 
@@ -627,6 +641,8 @@ function renderChangelog() {
   }
 }
 if (openChangelogBtn && changelogModal) openChangelogBtn.addEventListener('click', () => { renderChangelog(); changelogModal.classList.add('show'); });
+if (openMPBtn && mpModal) openMPBtn.addEventListener('click', () => { mpModal.classList.add('show'); renderLobbyList(); });
+if (closeMPBtn && mpModal) closeMPBtn.addEventListener('click', () => { mpModal.classList.remove('show'); });
 if (openQABtn && qaModal) openQABtn.addEventListener('click', () => { qaModal.classList.add('show'); });
 if (closeQABtn && qaModal) closeQABtn.addEventListener('click', () => { qaModal.classList.remove('show'); });
 if (closeChangelogBtn && changelogModal) closeChangelogBtn.addEventListener('click', () => { changelogModal.classList.remove('show'); });
@@ -1459,3 +1475,91 @@ function renderMiniMap() {
   miniMapCtx.arc(w / 2, h / 2, 3, 0, Math.PI * 2);
   miniMapCtx.fill();
 }
+function loadLobbies() {
+  try { return JSON.parse(localStorage.getItem('MP_LOBBIES') || '[]'); } catch { return []; }
+}
+function saveLobbies(list) { localStorage.setItem('MP_LOBBIES', JSON.stringify(list)); }
+function makeCode() { return Math.random().toString(36).slice(2, 8); }
+function renderLobbyList() {
+  const list = loadLobbies();
+  if (!mpLobbyListDiv) return;
+  mpLobbyListDiv.innerHTML = list.length ? list.map(l => `<button data-code="${l.code}" data-locked="${l.locked ? '1':'0'}">${l.name} (${l.code}) ${l.locked ? '🔒' : '🌐'}</button>`).join(' ') : 'No lobbies';
+  mpLobbyListDiv.querySelectorAll('button').forEach(b => {
+    b.addEventListener('click', () => {
+      mpJoinCodeInput.value = b.getAttribute('data-code') || '';
+      const locked = b.getAttribute('data-locked') === '1';
+      if (locked && mpJoinPasswordInput) mpJoinPasswordInput.focus();
+    });
+  });
+}
+let currentLobby = null;
+let selfUsername = 'Player';
+const playersGroup = new THREE.Group();
+scene.add(playersGroup);
+function makeNameSprite(text) {
+  const cvs = document.createElement('canvas');
+  cvs.width = 256; cvs.height = 64;
+  const ctx = cvs.getContext('2d');
+  ctx.clearRect(0,0,cvs.width,cvs.height);
+  ctx.fillStyle = 'rgba(0,0,0,0.5)';
+  ctx.fillRect(0, 0, cvs.width, cvs.height);
+  ctx.fillStyle = '#ffffff';
+  ctx.font = '28px system-ui';
+  ctx.textAlign = 'center';
+  ctx.textBaseline = 'middle';
+  ctx.fillText(text, cvs.width/2, cvs.height/2);
+  const tex = new THREE.CanvasTexture(cvs);
+  const mat = new THREE.SpriteMaterial({ map: tex, transparent: true });
+  const spr = new THREE.Sprite(mat);
+  spr.scale.set(1.8, 0.45, 1);
+  return spr;
+}
+function spawnAvatar(name, pos) {
+  const body = new THREE.Mesh(new THREE.CapsuleGeometry(0.25, 0.8, 8, 16), new THREE.MeshStandardMaterial({ color: 0x66ccff }));
+  body.position.set(pos.x, 1.0, pos.z);
+  const label = makeNameSprite(name);
+  label.position.set(0, 1.6, 0);
+  body.add(label);
+  playersGroup.add(body);
+}
+function clearAvatars() {
+  while (playersGroup.children.length) playersGroup.remove(playersGroup.children[0]);
+}
+function enterLobby(lobby) {
+  currentLobby = lobby;
+  clearAvatars();
+  for (const p of lobby.players) {
+    if (p.name !== selfUsername) {
+      const pos = randomOpenPosition(Math.random);
+      spawnAvatar(p.name, pos);
+    }
+  }
+  mpModal.classList.remove('show');
+}
+if (mpCreateBtn) mpCreateBtn.addEventListener('click', () => {
+  const name = (mpLobbyNameInput && mpLobbyNameInput.value.trim()) || 'Lobby';
+  const user = (mpUsernameInput && mpUsernameInput.value.trim()) || 'Player';
+  const locked = !!(mpLockInput && mpLockInput.checked);
+  const pass = (mpPasswordInput && mpPasswordInput.value) || '';
+  selfUsername = user;
+  const list = loadLobbies();
+  const code = makeCode();
+  const lobby = { code, name, locked, password: locked ? pass : '', players: [{ name: user }] };
+  list.push(lobby);
+  saveLobbies(list);
+  renderLobbyList();
+  enterLobby(lobby);
+});
+if (mpJoinBtn) mpJoinBtn.addEventListener('click', () => {
+  const code = (mpJoinCodeInput && mpJoinCodeInput.value.trim()) || '';
+  const user = (mpUsernameInput && mpUsernameInput.value.trim()) || 'Player';
+  const pass = (mpJoinPasswordInput && mpJoinPasswordInput.value) || '';
+  selfUsername = user;
+  const list = loadLobbies();
+  const lobby = list.find(l => l.code === code);
+  if (!lobby) return;
+  if (lobby.locked && lobby.password !== pass) return;
+  lobby.players.push({ name: user });
+  saveLobbies(list);
+  enterLobby(lobby);
+});
