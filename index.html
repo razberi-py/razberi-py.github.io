@@ -56,11 +56,21 @@
     #overlay .card h1 { margin: 0 0 8px; font-size: 22px; }
     #overlay .card p { margin: 4px 0; opacity: 0.8; }
     #modeToast { position: fixed; left: 12px; bottom: 12px; color: #0ff; background: rgba(0,0,0,0.6); padding: 6px 10px; border-radius: 6px; font-family: system-ui, sans-serif; z-index: 10; }
+    .hide { display: none; }
+    #mpModal { position: fixed; inset: 0; display: none; place-items: center; background: rgba(0,0,0,0.6); color: #fff; font-family: system-ui, sans-serif; z-index: 1000; }
+    #mpModal.show { display: grid; }
+    #mpModal .card { background: transparent; padding: 12px 16px; border-radius: 8px; width: 720px; border: 2px solid #33cc66; }
+    #mpModal .card .content { max-height: 60vh; overflow-y: auto; margin-top: 8px; }
+    #mpModal .row { display: flex; gap: 8px; align-items: center; margin-top: 8px; }
+    #mpModal .mp-columns { display: flex; gap: 16px; margin-top: 8px; }
+    #mpModal .mp-col { flex: 1 1 0; border: 1px solid rgba(255,255,255,0.15); border-radius: 6px; padding: 10px; background: rgba(255,255,255,0.06); }
+    #mpModal h2 { margin: 6px 0; font-size: 18px; }
   </style>
 </head>
 <body>
   <div id="hud">
     <button id="openSettings">Settings</button>
+    <button id="openMP" class="hide">Play Multiplayer</button>
     <div id="settingsPanel" class="panel hide">
       <div class="tabs">
         <button id="tabPerf" class="active">Performance</button>
@@ -260,6 +270,56 @@
       <div class="row">
         <button id="cheatYes">Enable</button>
         <button id="cheatNo">Cancel</button>
+      </div>
+    </div>
+  </div>
+  <div id="mpModal">
+    <div class="card">
+      <h1>Multiplayer</h1>
+      <div class="content">
+        <div class="row">
+          <label for="mpUsername">Username</label>
+          <input id="mpUsername" type="text" placeholder="Player" />
+        </div>
+        <div class="mp-columns">
+          <div class="mp-col" id="mpCreateArea">
+            <h2>Create Lobby</h2>
+            <div class="row">
+              <label for="mpLobbyName">Lobby name</label>
+              <input id="mpLobbyName" type="text" placeholder="My Lobby" />
+            </div>
+            <div class="row">
+              <label for="mpLock">Locked</label>
+              <input id="mpLock" type="checkbox" />
+              <label for="mpPassword">Password</label>
+              <input id="mpPassword" type="password" placeholder="optional" />
+            </div>
+            <div class="row">
+              <button id="mpCreate">Create Lobby</button>
+            </div>
+          </div>
+          <div class="mp-col" id="mpJoinArea">
+            <h2>Join Lobby</h2>
+            <div class="row">
+              <label for="mpJoinCode">Code</label>
+              <input id="mpJoinCode" type="text" placeholder="lobby code" />
+            </div>
+            <div class="row">
+              <label for="mpJoinPassword">Password</label>
+              <input id="mpJoinPassword" type="password" placeholder="if required" />
+            </div>
+            <div class="row">
+              <button id="mpJoin">Join Lobby</button>
+            </div>
+            <h2>Available Lobbies</h2>
+            <div class="row">
+              <div id="mpLobbyList"></div>
+            </div>
+          </div>
+        </div>
+      </div>
+      <div class="row">
+        <button id="closeMP">Close</button>
       </div>
     </div>
   </div>
