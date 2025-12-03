@@ -336,6 +336,11 @@ const mpJoinCodeInput = document.getElementById('mpJoinCode');
 const mpJoinPasswordInput = document.getElementById('mpJoinPassword');
 const mpJoinBtn = document.getElementById('mpJoin');
 const mpLobbyListDiv = document.getElementById('mpLobbyList');
+const mpOwnArea = document.getElementById('mpOwnArea');
+const mpOwnName = document.getElementById('mpOwnName');
+const mpOwnCode = document.getElementById('mpOwnCode');
+const mpOwnLock = document.getElementById('mpOwnLock');
+const mpLeaveBtn = document.getElementById('mpLeave');
 const openQABtn = document.getElementById('openQA');
 const qaModal = document.getElementById('qaModal');
 const closeQABtn = document.getElementById('closeQA');
@@ -1578,6 +1583,14 @@ function enterLobby(lobby) {
       }
     }
   }
+  if (mpOwnArea && mpOwnName && mpOwnCode && mpOwnLock && mpCreateArea && mpJoinArea) {
+    mpOwnArea.classList.remove('hide');
+    mpCreateArea.classList.add('hide');
+    mpJoinArea.classList.add('hide');
+    mpOwnName.textContent = `Lobby: ${lobby.name}`;
+    mpOwnCode.textContent = `Code: ${lobby.code}`;
+    mpOwnLock.textContent = lobby.locked ? 'Locked' : 'Public';
+  }
   mpModal.classList.remove('show');
 }
 if (mpCreateBtn) mpCreateBtn.addEventListener('click', () => {
@@ -1587,11 +1600,11 @@ if (mpCreateBtn) mpCreateBtn.addEventListener('click', () => {
   const pass = (mpPasswordInput && mpPasswordInput.value) || '';
   selfUsername = user;
   const code = makeCode();
-  const lobby = { code, name, locked, password: locked ? pass : '', players: {} };
+  const lobby = { code, name, locked, password: locked ? pass : '', host: user, players: {} };
   lobby.players[user] = { name: user };
   if (db) saveLobby(lobby); else {
     const list = (() => { try { return JSON.parse(localStorage.getItem('MP_LOBBIES') || '[]'); } catch { return []; } })();
-    list.push({ code, name, locked, password: locked ? pass : '', players: [{ name: user }] });
+    list.push({ code, name, locked, password: locked ? pass : '', host: user, players: [{ name: user }] });
     localStorage.setItem('MP_LOBBIES', JSON.stringify(list));
   }
   renderLobbyList();
@@ -1621,6 +1634,73 @@ if (mpJoinBtn) mpJoinBtn.addEventListener('click', () => {
     localStorage.setItem('MP_LOBBIES', JSON.stringify(list));
     enterLobby(lobby);
   }
+});
+function leaveLobby() {
+  if (!currentLobby) return;
+  const code = currentLobby.code;
+  if (db) {
+    db.ref(`lobbies/${code}`).get().then(snap => {
+      const lobby = snap.val();
+      if (!lobby) return;
+      lobby.players = lobby.players || {};
+      delete lobby.players[selfUsername];
+      const remaining = Object.keys(lobby.players);
+      if (remaining.length === 0) {
+        db.ref(`lobbies/${code}`).remove();
+      } else {
+        if (lobby.host === selfUsername) lobby.host = remaining[0];
+        saveLobby(lobby);
+      }
+      currentLobby = null;
+      if (mpOwnArea && mpCreateArea && mpJoinArea) {
+        mpOwnArea.classList.add('hide');
+        mpCreateArea.classList.remove('hide');
+        mpJoinArea.classList.remove('hide');
+      }
+      renderLobbyList();
+    });
+  } else {
+    const list = (() => { try { return JSON.parse(localStorage.getItem('MP_LOBBIES') || '[]'); } catch { return []; } })();
+    const idx = list.findIndex(l => l.code === code);
+    if (idx >= 0) {
+      const lobby = list[idx];
+      lobby.players = Array.isArray(lobby.players) ? lobby.players : Object.values(lobby.players || {});
+      lobby.players = lobby.players.filter(p => p.name !== selfUsername);
+      if (lobby.players.length === 0) list.splice(idx, 1);
+      else {
+        if (lobby.host === selfUsername) lobby.host = lobby.players[0].name;
+        list[idx] = lobby;
+      }
+      localStorage.setItem('MP_LOBBIES', JSON.stringify(list));
+    }
+    currentLobby = null;
+    if (mpOwnArea && mpCreateArea && mpJoinArea) {
+      mpOwnArea.classList.add('hide');
+      mpCreateArea.classList.remove('hide');
+      mpJoinArea.classList.remove('hide');
+    }
+    renderLobbyList();
+  }
+}
+if (mpLeaveBtn) mpLeaveBtn.addEventListener('click', () => { leaveLobby(); });
+window.addEventListener('beforeunload', () => {
+  try {
+    if (db && currentLobby && selfUsername) {
+      const code = currentLobby.code;
+      db.ref(`lobbies/${code}/players/${selfUsername}`).remove().then(() => {
+        db.ref(`lobbies/${code}`).get().then(snap => {
+          const lobby = snap.val();
+          if (!lobby) return;
+          const players = lobby.players ? Object.keys(lobby.players) : [];
+          if (players.length === 0) db.ref(`lobbies/${code}`).remove();
+          else if (lobby.host === selfUsername) {
+            lobby.host = players[0];
+            saveLobby(lobby);
+          }
+        });
+      });
+    }
+  } catch {}
 });
 window.addEventListener('beforeunload', () => {
   try {
