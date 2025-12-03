@@ -1475,20 +1475,48 @@ function renderMiniMap() {
   miniMapCtx.arc(w / 2, h / 2, 3, 0, Math.PI * 2);
   miniMapCtx.fill();
 }
-function loadLobbies() {
-  try { return JSON.parse(localStorage.getItem('MP_LOBBIES') || '[]'); } catch { return []; }
+let db = null;
+function initLobbyBackend() {
+  try {
+    if (window.FIREBASE_CONFIG) {
+      const app = firebase.initializeApp(window.FIREBASE_CONFIG);
+      db = firebase.database(app);
+    }
+  } catch {}
 }
-function saveLobbies(list) { localStorage.setItem('MP_LOBBIES', JSON.stringify(list)); }
+initLobbyBackend();
+function loadLobbies(cb) {
+  if (db) {
+    db.ref('lobbies').on('value', snap => {
+      const val = snap.val() || {};
+      const list = Object.values(val);
+      cb(list);
+    });
+  } else {
+    try { cb(JSON.parse(localStorage.getItem('MP_LOBBIES') || '[]')); } catch { cb([]); }
+  }
+}
+function saveLobby(lobby) {
+  if (db) {
+    return db.ref(`lobbies/${lobby.code}`).set(lobby);
+  } else {
+    const list = (() => { try { return JSON.parse(localStorage.getItem('MP_LOBBIES') || '[]'); } catch { return []; } })();
+    const idx = list.findIndex(l => l.code === lobby.code);
+    if (idx >= 0) list[idx] = lobby; else list.push(lobby);
+    localStorage.setItem('MP_LOBBIES', JSON.stringify(list));
+  }
+}
 function makeCode() { return Math.random().toString(36).slice(2, 8); }
 function renderLobbyList() {
-  const list = loadLobbies();
   if (!mpLobbyListDiv) return;
-  mpLobbyListDiv.innerHTML = list.length ? list.map(l => `<button data-code="${l.code}" data-locked="${l.locked ? '1':'0'}">${l.name} (${l.code}) ${l.locked ? '🔒' : '🌐'}</button>`).join(' ') : 'No lobbies';
-  mpLobbyListDiv.querySelectorAll('button').forEach(b => {
-    b.addEventListener('click', () => {
-      mpJoinCodeInput.value = b.getAttribute('data-code') || '';
-      const locked = b.getAttribute('data-locked') === '1';
-      if (locked && mpJoinPasswordInput) mpJoinPasswordInput.focus();
+  loadLobbies(list => {
+    mpLobbyListDiv.innerHTML = list.length ? list.map(l => `<button data-code="${l.code}" data-locked="${l.locked ? '1':'0'}">${l.name} (${l.code}) ${l.locked ? '🔒' : '🌐'}</button>`).join(' ') : 'No lobbies';
+    mpLobbyListDiv.querySelectorAll('button').forEach(b => {
+      b.addEventListener('click', () => {
+        mpJoinCodeInput.value = b.getAttribute('data-code') || '';
+        const locked = b.getAttribute('data-locked') === '1';
+        if (locked && mpJoinPasswordInput) mpJoinPasswordInput.focus();
+      });
     });
   });
 }
@@ -1528,10 +1556,26 @@ function clearAvatars() {
 function enterLobby(lobby) {
   currentLobby = lobby;
   clearAvatars();
-  for (const p of lobby.players) {
-    if (p.name !== selfUsername) {
-      const pos = randomOpenPosition(Math.random);
-      spawnAvatar(p.name, pos);
+  if (db) {
+    const code = lobby.code;
+    db.ref(`lobbies/${code}/players`).on('value', snap => {
+      const playersObj = snap.val() || {};
+      const players = Object.values(playersObj);
+      clearAvatars();
+      for (const p of players) {
+        if (p.name !== selfUsername) {
+          const pos = randomOpenPosition(Math.random);
+          spawnAvatar(p.name, pos);
+        }
+      }
+    });
+  } else {
+    const players = Array.isArray(lobby.players) ? lobby.players : Object.values(lobby.players || {});
+    for (const p of players) {
+      if (p.name !== selfUsername) {
+        const pos = randomOpenPosition(Math.random);
+        spawnAvatar(p.name, pos);
+      }
     }
   }
   mpModal.classList.remove('show');
@@ -1542,11 +1586,14 @@ if (mpCreateBtn) mpCreateBtn.addEventListener('click', () => {
   const locked = !!(mpLockInput && mpLockInput.checked);
   const pass = (mpPasswordInput && mpPasswordInput.value) || '';
   selfUsername = user;
-  const list = loadLobbies();
   const code = makeCode();
-  const lobby = { code, name, locked, password: locked ? pass : '', players: [{ name: user }] };
-  list.push(lobby);
-  saveLobbies(list);
+  const lobby = { code, name, locked, password: locked ? pass : '', players: {} };
+  lobby.players[user] = { name: user };
+  if (db) saveLobby(lobby); else {
+    const list = (() => { try { return JSON.parse(localStorage.getItem('MP_LOBBIES') || '[]'); } catch { return []; } })();
+    list.push({ code, name, locked, password: locked ? pass : '', players: [{ name: user }] });
+    localStorage.setItem('MP_LOBBIES', JSON.stringify(list));
+  }
   renderLobbyList();
   enterLobby(lobby);
 });
@@ -1555,11 +1602,30 @@ if (mpJoinBtn) mpJoinBtn.addEventListener('click', () => {
   const user = (mpUsernameInput && mpUsernameInput.value.trim()) || 'Player';
   const pass = (mpJoinPasswordInput && mpJoinPasswordInput.value) || '';
   selfUsername = user;
-  const list = loadLobbies();
-  const lobby = list.find(l => l.code === code);
-  if (!lobby) return;
-  if (lobby.locked && lobby.password !== pass) return;
-  lobby.players.push({ name: user });
-  saveLobbies(list);
-  enterLobby(lobby);
+  if (db) {
+    db.ref(`lobbies/${code}`).get().then(snap => {
+      const lobby = snap.val();
+      if (!lobby) return;
+      if (lobby.locked && lobby.password !== pass) return;
+      lobby.players = lobby.players || {};
+      lobby.players[user] = { name: user };
+      saveLobby(lobby);
+      enterLobby(lobby);
+    });
+  } else {
+    const list = (() => { try { return JSON.parse(localStorage.getItem('MP_LOBBIES') || '[]'); } catch { return []; } })();
+    const lobby = list.find(l => l.code === code);
+    if (!lobby) return;
+    if (lobby.locked && lobby.password !== pass) return;
+    lobby.players.push({ name: user });
+    localStorage.setItem('MP_LOBBIES', JSON.stringify(list));
+    enterLobby(lobby);
+  }
+});
+window.addEventListener('beforeunload', () => {
+  try {
+    if (db && currentLobby && selfUsername) {
+      db.ref(`lobbies/${currentLobby.code}/players/${selfUsername}`).remove();
+    }
+  } catch {}
 });
